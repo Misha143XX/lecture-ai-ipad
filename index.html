@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101827">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Lecture AI">
+  <meta name="description" content="Личная библиотека видеолекций, субтитров и конспектов. Без подписки.">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="./icons/icon-180.png">
+  <link rel="stylesheet" href="./styles.css">
+  <title>Lecture AI — мои лекции</title>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Основная навигация">
+      <div class="brand"><div class="brand-mark" aria-hidden="true">L<span>✦</span></div><div><strong>Lecture AI</strong><small>личный учебный архив</small></div></div>
+      <div class="nav-label">РАБОЧЕЕ ПРОСТРАНСТВО</div>
+      <button class="nav-item active" id="navLibrary" type="button"><span class="nav-icon">▦</span> Библиотека <span class="nav-counter" id="navCount">0</span></button>
+      <button class="nav-item" id="navImport" type="button"><span class="nav-icon">＋</span> Добавить лекцию</button>
+      <div class="sidebar-bottom"><span class="privacy-dot"></span><span>Личные файлы остаются на этом устройстве</span></div>
+    </aside>
+    <main class="main" id="main">
+      <header class="topbar"><div class="mobile-brand"><span class="mobile-logo">L✦</span> Lecture AI</div><span class="version-pill">iPad · Preview 0.1</span></header>
+      <section class="view" id="libraryView">
+        <div class="page-head"><div><span class="eyebrow">ВАША УЧЁБА, В ОДНОМ МЕСТЕ</span><h1>Библиотека лекций</h1><p>Видео, расшифровки и конспекты — без лишних приложений.</p></div><button id="addLecture" class="button primary">＋ Добавить лекцию</button></div>
+        <div class="stats-row"><div class="stat"><span class="stat-icon">◫</span><div><strong id="countLectures">0</strong><small>лекций в архиве</small></div></div><div class="stat"><span class="stat-icon">▤</span><div><strong id="countText">0</strong><small>с текстом занятия</small></div></div><div class="stat"><span class="stat-icon">♢</span><div><strong>0 ₽</strong><small>подписок и платежей</small></div></div></div>
+        <div class="section-top"><h2>Мои занятия</h2><span class="section-meta" id="resultCount"></span></div>
+        <div class="controls"><label class="search-wrap"><span aria-hidden="true">⌕</span><input id="search" autocomplete="off" placeholder="Найти лекцию или слово в тексте…" aria-label="Поиск по лекциям"></label><select id="filterSubject" aria-label="Фильтр по предмету"><option value="">Все предметы</option></select></div>
+        <div class="lecture-grid" id="lectureList"></div>
+        <div class="empty-state" id="emptyState"><div class="empty-icon">▤</div><h3>Здесь будут ваши лекции</h3><p>Добавь видео или аудио с iPad. Если есть текст занятия или субтитры, Lecture AI подготовит конспект и позволит искать ответы.</p><div class="empty-buttons"><button class="button primary" id="emptyAdd">＋ Добавить первую лекцию</button><button class="button quiet" id="createDemo">Посмотреть демо</button></div></div>
+        <div class="notice"><strong>О записи Zoom на iPad.</strong> Эта версия принимает готовые файлы из приложения «Фото» или «Файлы». Она не записывает другие приложения в фоне и пока не распознаёт речь непосредственно из видео.</div>
+      </section>
+      <section class="view hidden" id="detailView">
+        <button class="back" id="backLibrary">‹ Все лекции</button>
+        <div class="detail-header"><div><span class="eyebrow">МАТЕРИАЛЫ ЗАНЯТИЯ</span><h1 id="detailTitle">Название лекции</h1><p class="detail-date" id="detailDate"></p></div><div class="detail-actions"><button id="exportTxt" class="button quiet">↓ Экспорт текста</button><button id="deleteLecture" class="button destructive">Удалить</button></div></div>
+        <div class="workspace-grid"><div class="workspace-primary"><div class="player-frame" id="playerFrame"><div class="no-media"><span>▶</span><p>Видео не добавлено</p></div></div><div class="metadata"><label>Название<input id="editTitle" type="text" maxlength="120" placeholder="Название лекции"></label><label>Предмет<input id="editSubject" type="text" maxlength="80" placeholder="Например, МЭО"></label><button class="button secondary" id="saveDetails">Сохранить</button></div><div class="tabs" role="tablist"><button class="tab active" data-tab="transcript">Расшифровка</button><button class="tab" data-tab="summary">Конспект</button><button class="tab" data-tab="ask">Вопросы по лекции</button></div><div id="transcriptPane" class="pane"><div class="pane-heading"><h3>Текст занятия</h3><label class="import-text-btn">＋ Импорт .txt / .srt / .vtt<input id="attachTranscript" type="file" accept=".txt,.srt,.vtt,text/plain,text/vtt,application/x-subrip" hidden></label></div><div id="transcriptBody" class="transcript-body"></div></div><div id="summaryPane" class="pane hidden"><div class="pane-heading"><h3>Конспект по исходному тексту</h3><button class="button secondary small" id="makeSummary">Собрать конспект</button></div><p class="hint">Конспект составляется из точных цитат. Это не генеративный ИИ — программа не добавляет факты от себя.</p><div id="summaryBody"></div></div><div id="askPane" class="pane hidden"><h3>Найти ответ в лекции</h3><p class="hint">Поиск совпадений по тексту, без выдуманных ответов. Подтверждения показаны дословно.</p><div class="ask-row"><input id="question" placeholder="Например: что говорили об отоплении?" maxlength="220"><button class="button primary" id="askButton">Найти</button></div><div id="answerBody"></div></div></div><aside class="workspace-aside"><div class="aside-panel"><div class="aside-label">СТАТУС ЛЕКЦИИ</div><div class="status-line"><span class="status-bullet"></span><span id="statusMedia">Нет видеозаписи</span></div><div class="status-line"><span class="status-bullet"></span><span id="statusTranscript">Нет расшифровки</span></div><hr><h4>Как подготовить лекцию</h4><p>После занятия сохрани видео в «Фото» или «Файлы», импортируй сюда. Текст можно прикрепить отдельно.</p><button class="button quiet full" id="attachMore">Добавить видео или аудио</button><input id="attachMedia" type="file" accept="video/*,audio/*,.mov,.mp4,.m4a,.mp3,.webm" hidden></div><div class="aside-panel tip"><strong>Приватность</strong><p>Материалы этого архива хранятся локально в браузере. Не удаляй данные сайта и сохраняй важные записи отдельно.</p></div></aside></div>
+      </section>
+    </main>
+  </div>
+  <dialog class="modal" id="importDialog"><form id="importForm" method="dialog"><div class="modal-head"><div><span class="eyebrow">НОВАЯ ЗАПИСЬ</span><h2>Добавить лекцию</h2></div><button type="button" id="closeImport" class="icon-button" aria-label="Закрыть">✕</button></div><label>Название<input name="title" id="newTitle" required maxlength="120" placeholder="Например, МЭО — лекция № 3"></label><label>Предмет<input name="subject" id="newSubject" maxlength="80" placeholder="Международные экономические отношения"></label><label>Видео или аудио <span class="optional">необязательно</span><input id="newMedia" name="media" type="file" accept="video/*,audio/*,.mov,.mp4,.m4a,.mp3,.webm"></label><label>Готовая расшифровка <span class="optional">необязательно</span><input id="newText" name="text" type="file" accept=".txt,.srt,.vtt,text/plain,text/vtt,application/x-subrip"></label><div class="modal-note">Важно: файл с видео может занимать много памяти iPad. Если устройство не разрешит сохранить большой файл, Lecture AI сохранит карточку и текст, а воспроизведение файла будет доступно только до закрытия приложения.</div><p class="modal-error" id="importError" role="alert"></p><div class="modal-buttons"><button type="button" class="button quiet" id="cancelImport">Отмена</button><button type="submit" class="button primary" id="submitImport">Добавить</button></div></form></dialog>
+  <div class="toast hidden" id="toast" role="status" aria-live="polite"></div>
+  <script src="./app.js" defer></script>
+</body>
+</html>
