@@ -1,4 +1,4 @@
-const CACHE='lecture-ai-shell-v03';
+const CACHE='lecture-ai-shell-v031';
 const ASSETS=['./','./index.html','./styles.css','./app.js','./localTranscribe.mjs','./localSummarize.mjs','./manifest.webmanifest','./icons/icon-192.png','./icons/icon-512.png','./icons/icon-180.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(names=>Promise.all(names.filter(x=>x!==CACHE&&x.startsWith('lecture-ai-shell-')).map(x=>caches.delete(x)))).then(()=>self.clients.claim())));
