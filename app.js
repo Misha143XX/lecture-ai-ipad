@@ -148,9 +148,9 @@ function renderSummary(item){
   const notes=item.studyNotes?.version===3?item.studyNotes:generateStudyNotes(item);
   if(item.aiSummary){
     const wrap=document.createElement('section');wrap.className='ai-summary';
-    const h=document.createElement('h4');h.textContent='Связный ИИ-конспект · эксперимент';
+    const h=document.createElement('h4');h.textContent=item.aiSummaryOrigin==='mac-ollama'?'Связный конспект · обработано на MacBook':'Связный ИИ-конспект · эксперимент';
     const p=document.createElement('div');p.className='ai-summary-text';p.textContent=item.aiSummary;
-    const note=document.createElement('p');note.className='hint';note.textContent='Сгенерировано небольшой локальной моделью. Возможны ошибки и неверные имена — сверяй с расшифровкой ниже.';
+    const note=document.createElement('p');note.className='hint';note.textContent='Конспект создан моделью Qwen из расшифровки. Возможны ошибки и неверные имена — сверяй с записью. Видео на MacBook не отправляется.';
     wrap.append(h,p,note);pane.append(wrap);
   }
   const intro=document.createElement('section');intro.className='notes-overview';
@@ -170,7 +170,7 @@ function renderSummary(item){
   }
 }
 function setTab(tab){state.activeTab=tab;for(const b of document.querySelectorAll('.tab'))b.classList.toggle('active',b.dataset.tab===tab);for(const n of ['transcript','summary','ask'])$(n+'Pane').classList.toggle('hidden',n!==tab);}
-function openLecture(id){const item=state.lectures.find(x=>x.id===id);if(!item)return;state.currentId=id;if(!state.transcribing){$('asrStatus').textContent='Модель скачивается бесплатно при первом запуске. Для первого теста рекомендуем 1–2 минуты.';$('asrProgress').classList.add('hidden');}$('detailTitle').textContent=item.title;$('detailDate').textContent=`${fmtDate(item.createdAt)} · ${item.subject||'Без предмета'}`;$('editTitle').value=item.title;$('editSubject').value=item.subject||'';$('statusMedia').textContent=item.media?'Видео сохранено':state.sessionMedia.has(id)?'Видео доступно до закрытия':'Нет сохранённого видео';$('statusTranscript').textContent=item.transcript?'Текст занятия загружен':'Нет расшифровки';$('answerBody').replaceChildren();renderMedia(item);renderTranscript(item);renderSummary(item);setTab('transcript');setView('detail');}
+function openLecture(id){const item=state.lectures.find(x=>x.id===id);if(!item)return;state.currentId=id;if(!state.transcribing){$('asrStatus').textContent='Модель скачивается бесплатно при первом запуске. Для первого теста рекомендуем 1–2 минуты.';$('asrProgress').classList.add('hidden');}$('detailTitle').textContent=item.title;$('detailDate').textContent=`${fmtDate(item.createdAt)} · ${item.subject||'Без предмета'}`;$('editTitle').value=item.title;$('editSubject').value=item.subject||'';$('statusMedia').textContent=item.media?'Видео сохранено':state.sessionMedia.has(id)?'Видео доступно до закрытия':'Нет сохранённого видео';$('statusTranscript').textContent=item.transcript?'Текст занятия загружен':'Нет расшифровки';$('answerBody').replaceChildren();renderMedia(item);renderTranscript(item);renderSummary(item);if(item.remoteStatus==='waiting')bridgeStatus('Отложено. Когда MacBook появится в сети, нажми «Обработать на MacBook».');else if(item.remoteStatus==='pending'||item.remoteStatus==='processing')bridgeStatus('Ожидает завершения на MacBook. Нажми «Обработать на MacBook» для проверки.');else if(item.remoteStatus==='done')bridgeStatus('Конспект с MacBook сохранён на iPad.');else bridgeStatus('Введите адрес и секретный ключ подключения к MacBook.');setTab('transcript');setView('detail');}
 async function updateCurrent(patch){const item=getCurrent();if(!item)return;const updated={...item,...patch};try{await storeItem(updated);state.lectures=state.lectures.map(x=>x.id===item.id?updated:x);renderLibrary();openLecture(updated.id);return true;}catch(e){console.error(e);toast('Не удалось сохранить изменения. Проверь свободную память.');return false;}}
 function openImport(){const dlg=$('importDialog');$('importError').textContent='';$('importForm').reset();dlg.showModal();}
 async function importLecture(evt){evt.preventDefault();const name=$('newTitle').value.trim();const subject=$('newSubject').value.trim();if(!name){$('importError').textContent='Введи название занятия';return;}const file=$('newMedia').files[0]||null;const textFile=$('newText').files[0]||null;let parsed={transcript:'',cues:[],srt:''};if(textFile){try{if(textFile.size>10*1024*1024){$('importError').textContent='Текст слишком большой (максимум 10 МБ).';return;}parsed=parseTranscript(textFile.name,await textFile.text());}catch{$('importError').textContent='Не удалось прочитать текстовый файл.';return;}}
@@ -207,20 +207,99 @@ async function transcribeCurrentVideo(){
   }catch(e){console.error('Local ASR error:',e);asrProgress('Не получилось распознать: '+(e?.message||String(e)),null);toast('Локальная расшифровка не удалась. Исходное видео осталось на месте.');}
   finally{state.transcribing=false;button.disabled=false;}
 }
+const BRIDGE_SETTINGS_KEY='lecture-ai-bridge-040';
+let bridgeBusy=false;
+function bridgeStatus(message){ const el=$('aiSummaryStatus');if(el)el.textContent=message; }
+function bridgeSettings(){ try {return JSON.parse(localStorage.getItem(BRIDGE_SETTINGS_KEY)||'{}')}catch{return {}} }
+function rememberBridgeSettings(){
+  // Credentials stay only on this iPad/browser, never in public GitHub files.
+  try{localStorage.setItem(BRIDGE_SETTINGS_KEY,JSON.stringify({url:$('bridgeUrl').value.trim(),token:$('bridgeToken').value.trim()}));}catch{}
+}
+function getBridgeConfig(){
+  const raw=$('bridgeUrl').value.trim();let u;
+  try{u=new URL(raw)}catch{throw new Error('Введи HTTPS-адрес MacBook, который показывает Терминал.');}
+  if(u.protocol!=='https:'||u.username||u.password||u.search||u.hash||u.pathname!=='/')throw new Error('Нужен HTTPS-адрес без дополнительных путей и параметров.');
+  const token=$('bridgeToken').value.trim();
+  if(token.length<24)throw new Error('Введи секретный ключ доступа из Терминала MacBook.');
+  rememberBridgeSettings();return {origin:u.origin,token};
+}
+async function bridgeRequest(config,path,{method='GET',body,timeoutMs=20000}={}){
+  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),timeoutMs);
+  try{
+    const response=await fetch(config.origin+path,{method,headers:{'Authorization':'Bearer '+config.token,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),cache:'no-store',signal:controller.signal,mode:'cors'});
+    let result={};try{result=await response.json()}catch{}
+    if(!response.ok)throw new Error(result.error||('Ошибка сервера HTTP '+response.status));
+    return result;
+  }catch(e){if(e?.name==='AbortError')throw new Error('MacBook не ответил вовремя. Проверь, что соединение работает.');throw e;}
+  finally{clearTimeout(timeout);}
+}
+async function persistRemotePatch(id,patch){
+  const item=state.lectures.find(v=>v.id===id);if(!item)return;
+  const updated={...item,...patch};await storeItem(updated);
+  state.lectures=state.lectures.map(v=>v.id===id?updated:v);renderLibrary();
+  if(state.currentId===id){renderSummary(updated);setTab('summary');}
+}
+function setBridgeBusy(isBusy){bridgeBusy=isBusy;for(const id of ['makeAiSummary','bridgeCheck','bridgeDefer'])$(id).disabled=isBusy;}
+function sleepBridge(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
+async function checkBridge(){
+  if(bridgeBusy)return;setBridgeBusy(true);
+  try{const cfg=getBridgeConfig();bridgeStatus('Проверяем соединение…');const status=await bridgeRequest(cfg,'/api/health');bridgeStatus('MacBook доступен. Модель: '+(status.model||'не выбрана')+'. Теперь можно отправить лекцию.');}
+  catch(e){bridgeStatus('Нет соединения: '+(e?.message||'неизвестная ошибка')+'. Расшифровка остаётся на iPad.');}
+  finally{setBridgeBusy(false);}
+}
+async function deferBridge(){
+  const item=getCurrent();if(!item?.transcript)return toast('Сначала нужна расшифровка');
+  try{await persistRemotePatch(item.id,{remoteStatus:'waiting',remoteJob:null});bridgeStatus('Отложено. Текст остаётся на iPad. Когда MacBook появится в сети, нажми «Обработать на MacBook».');}
+  catch(e){bridgeStatus('Не удалось сохранить очередь: '+(e?.message||String(e)));}
+}
+async function waitBridgeJob(cfg,id,jobId){
+  for(let i=0;i<180;i++){
+    await sleepBridge(5000);
+    let status;
+    try{status=await bridgeRequest(cfg,'/api/jobs/'+encodeURIComponent(jobId),{timeoutMs:14000});}
+    catch(e){await persistRemotePatch(id,{remoteStatus:'pending',remoteJob:jobId});throw new Error('Связь прервалась: '+e.message+' Нажми кнопку повторно для проверки статуса.');}
+    if(status.status==='done'){
+      if(!status.summary||status.summary.length<100)throw new Error('MacBook вернул слишком короткий текст.');
+      await persistRemotePatch(id,{aiSummary:status.summary,aiSummaryOrigin:'mac-ollama',remoteStatus:'done',remoteJob:null});
+      bridgeStatus('Связный конспект готов и сохранён на iPad. Проверь имена, даты и факты по видео.');toast('Конспект с MacBook получен');return;
+    }
+    if(status.status==='error'){await persistRemotePatch(id,{remoteStatus:'error',remoteJob:null});throw new Error(status.error||'Ошибка создания конспекта на MacBook');}
+    bridgeStatus(`MacBook обрабатывает лекцию: ${status.progress||'идёт работа'}. Можно оставить вкладку открытой.`);
+  }
+  throw new Error('Обработка продолжается слишком долго. Вернись позже и повторно нажми кнопку для проверки.');
+}
 async function makeAiSummary(){
   const item=getCurrent();if(!item?.transcript)return toast('Сначала нужна расшифровка');
-  if(state.transcribing)return toast('Сначала дождись окончания распознавания');
-  const b=$('makeAiSummary'),stat=$('aiSummaryStatus');b.disabled=true;
-  stat.textContent='Проверяем поддержку локальной языковой модели…';
+  if(bridgeBusy||state.transcribing)return;
+  if(!$('bridgeConsent').checked)return bridgeStatus('Сначала отметь согласие на передачу текста лекции.');
+  setBridgeBusy(true);
   try{
-    const mod=await import('./localSummarize.mjs?v=032');
-    const text=await mod.createCoherentNotes({item,onProgress:msg=>{stat.textContent=msg;}});
-    if(!text||text.length<100)throw new Error('Модель вернула слишком короткий ответ.');
-    await updateCurrent({aiSummary:text});setTab('summary');stat.textContent='Готово. Связный конспект сохранён на этом iPad.';
-    toast('ИИ-конспект создан — проверь неточности по записи');
-  }catch(e){console.error('Local AI notes:',e);stat.textContent='Связный ИИ-конспект недоступен: '+(e?.message||String(e))+'. Тематический конспект и запись сохранены.';toast('Не удалось запустить локальную языковую модель');}
-  finally{b.disabled=false;}
+    const cfg=getBridgeConfig();
+    let job=item.remoteJob;
+    if(job){
+      bridgeStatus('Проверяем ранее отправленное задание…');
+      try{const status=await bridgeRequest(cfg,'/api/jobs/'+encodeURIComponent(job));if(status.status==='done'){
+        await persistRemotePatch(item.id,{aiSummary:status.summary,aiSummaryOrigin:'mac-ollama',remoteStatus:'done',remoteJob:null});bridgeStatus('Конспект готов и сохранён на iPad.');return;
+      }if(status.status==='error'||status.status==='missing')job=null;
+      }catch(e){if(String(e?.message||'').includes('не найдено'))job=null;else throw e;}
+    }
+    if(!job){
+      bridgeStatus('Отправляем только текст расшифровки, не видео…');
+      const cues=Array.isArray(item.cues)?item.cues.slice(0,2500).map(x=>({start:Number(x.start)||0,text:String(x.text||'').slice(0,700)})):[];
+      const reply=await bridgeRequest(cfg,'/api/jobs',{method:'POST',body:{title:item.title,subject:item.subject||'',transcript:item.transcript,cues},timeoutMs:35000});
+      job=reply.job_id;if(!job)throw new Error('MacBook не вернул идентификатор задания.');
+      await persistRemotePatch(item.id,{remoteStatus:'processing',remoteJob:job});
+    }
+    await waitBridgeJob(cfg,item.id,job);
+  }catch(e){bridgeStatus('Не удалось завершить обработку: '+(e?.message||String(e))+'. Текст на iPad сохранён.');}
+  finally{setBridgeBusy(false);}
 }
+function initBridge(){
+  const cfg=bridgeSettings();$('bridgeUrl').value=cfg.url||'';$('bridgeToken').value=cfg.token||'';
+  $('bridgeUrl').addEventListener('change',rememberBridgeSettings);$('bridgeToken').addEventListener('change',rememberBridgeSettings);
+  $('bridgeCheck').onclick=checkBridge;$('bridgeDefer').onclick=deferBridge;
+}
+
 function bind(){ $('transcribeLocal').onclick=transcribeCurrentVideo; $('navLibrary').onclick=$('backLibrary').onclick=()=>{releasePlayer();setView('library');};$('navImport').onclick=$('addLecture').onclick=$('emptyAdd').onclick=openImport;$('closeImport').onclick=$('cancelImport').onclick=()=>$('importDialog').close();$('importForm').addEventListener('submit',importLecture);$('search').addEventListener('input',e=>{state.query=e.target.value;renderLibrary()});$('filterSubject').addEventListener('change',e=>{state.filter=e.target.value;renderLibrary()});$('createDemo').onclick=async()=>{const item=sampleLecture();await storeItem(item);state.lectures.push(item);renderLibrary();openLecture(item.id);toast('Создана демонстрационная лекция');};document.querySelectorAll('.tab').forEach(btn=>btn.addEventListener('click',()=>setTab(btn.dataset.tab)));$('saveDetails').onclick=()=>{const title=$('editTitle').value.trim();if(!title)return toast('Укажи название лекции');updateCurrent({title,subject:$('editSubject').value.trim()}).then(()=>toast('Название и предмет сохранены'));};$('deleteLecture').onclick=async()=>{const item=getCurrent();if(!item||!confirm('Удалить эту лекцию и её текст с устройства?'))return;await deleteItem(item.id);state.lectures=state.lectures.filter(x=>x.id!==item.id);state.sessionMedia.delete(item.id);releasePlayer();setView('library');renderLibrary();toast('Лекция удалена');};$('attachTranscript').onchange=attachTranscript;$('attachMedia').onchange=attachMedia;$('attachMore').onclick=()=>$('attachMedia').click();$('exportTxt').onclick=exportText;$('makeSummary').onclick=async()=>{const item=getCurrent();if(!item||!item.transcript)return toast('Нужен текст лекции');const studyNotes=generateStudyNotes(item);await updateCurrent({studyNotes});setTab('summary');toast('Тематический конспект создан');};$('makeAiSummary').onclick=makeAiSummary;$('askButton').onclick=()=>{const item=getCurrent(),q=$('question').value.trim(),box=$('answerBody');box.replaceChildren();if(!item||!item.transcript){box.textContent='Сначала добавь текст лекции.';return;}if(!q){box.textContent='Напиши вопрос.';return;}const hits=locateAnswer(item,q);const label=document.createElement('p');label.className='answer-intro';label.textContent=hits.length?'Найдены фрагменты текста, связанные с вопросом:':'В расшифровке не нашлось текстовых совпадений. Попробуй другие слова.';box.append(label);for(const x of hits){const div=document.createElement('div');div.className='evidence';if(x.time!==null&&x.time!==undefined){const b=document.createElement('button');b.textContent=timeLabel(x.time);b.addEventListener('click',()=>seekTo(x.time));div.append(b);}div.append(document.createTextNode(x.text));box.append(div);}};$('question').addEventListener('keydown',e=>{if(e.key==='Enter')$('askButton').click()});}
-async function init(){bind();try{db=await openDB();state.lectures=await loadItems();renderLibrary();if(navigator.storage?.persisted){navigator.storage.persisted().then(p=>{if(!p)console.info('Storage may be cleared by browser under pressure')}).catch(()=>{});}if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(err=>console.info('SW not registered',err));}catch(err){console.error(err);$('emptyState').querySelector('p').textContent='Браузер заблокировал локальное хранилище. Открой сайт в обычном Safari (не приватный режим) и попробуй снова.';toast('Локальное хранилище недоступно.');}}
+async function init(){bind();initBridge();try{db=await openDB();state.lectures=await loadItems();renderLibrary();if(navigator.storage?.persisted){navigator.storage.persisted().then(p=>{if(!p)console.info('Storage may be cleared by browser under pressure')}).catch(()=>{});}if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(err=>console.info('SW not registered',err));}catch(err){console.error(err);$('emptyState').querySelector('p').textContent='Браузер заблокировал локальное хранилище. Открой сайт в обычном Safari (не приватный режим) и попробуй снова.';toast('Локальное хранилище недоступно.');}}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
