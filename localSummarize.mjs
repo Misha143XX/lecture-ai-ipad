@@ -1,55 +1,45 @@
 // Lecture AI 0.3 / experimental browser-only note synthesis.
 // This module is loaded only after a user explicitly clicks the beta button.
 // Only library/model files are downloaded; lecture text is passed to a local WebGPU model.
+// Lecture AI 0.3.2: CPU-only compatibility trial on iPadOS 18.4.1.
+// Do NOT initialize WebLLM or request a WebGPU device: Safari reports
+// workgroup storage limit 16384 bytes, incompatible with WebLLM's 32768.
 let cachedEngine = null;
-const MODEL_GPU = 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
 const MODEL_CPU = 'onnx-community/Qwen2.5-0.5B-Instruct';
-// WebLLM's prebuilt model asks for 32768 bytes of workgroup storage.
-// Some Safari/iPad GPUs only provide 16384; do NOT request an unsupported GPU device.
-const GPU_WORKGROUP_REQUIRED = 32768;
 const status = (callback,text) => { if (typeof callback === 'function') callback(text); };
 
 async function getEngine(onProgress) {
   if (cachedEngine) return cachedEngine;
-  let adapter = null;
-  try { adapter = await navigator.gpu?.requestAdapter() || null; } catch {}
-  const available = adapter?.limits?.maxComputeWorkgroupStorageSize || 0;
-  if (available >= GPU_WORKGROUP_REQUIRED) {
-    try {
-      status(onProgress,'GPU совместим. Подключаем WebLLM…');
-      const webllm = await import('https://esm.run/@mlc-ai/web-llm@0.2.83');
-      if (!webllm.prebuiltAppConfig?.model_list?.some(x => x.model_id === MODEL_GPU)) {
-        throw new Error('GPU-модель не найдена в каталоге WebLLM');
-      }
-      const engine = await webllm.CreateMLCEngine(MODEL_GPU, {
-        initProgressCallback: x => status(onProgress,'Подготовка GPU-модели: '+(x?.text || Math.round((x?.progress||0)*100)+'%')),
-      });
-      cachedEngine = {mode:'gpu',engine};
-      return cachedEngine;
-    } catch (e) {
-      console.warn('WebLLM model initialization failed; trying WASM CPU:',e);
-      status(onProgress,'GPU-модель не запустилась. Пробуем CPU-режим без WebGPU…');
-    }
-  } else {
-    status(onProgress,`GPU предоставляет ${available || 0} Б/группу вместо необходимых 32768 Б. Пробуем CPU-режим…`);
+  status(onProgress,'Режим CPU: WebGPU и WebLLM полностью отключены. Подключаем WebAssembly…');
+  // No GPU preflight and no GPU model imports. Only ONNX Runtime WASM.
+  let transformers;
+  try {
+    transformers = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1');
+  } catch (e) {
+    throw new Error('Не удалось загрузить библиотеку CPU-конспектирования: '+(e?.message || String(e)));
   }
-  // CPU fallback uses ONNX WebAssembly; no WebGPU and no paid server.
-  // Unlike WebLLM, the library supports 4-bit ONNX models on the CPU.
-  status(onProgress,'Загружаем бесплатную CPU-модель Qwen (первая загрузка — сотни МБ)…');
-  const {pipeline,env}=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1');
+  const {pipeline,env}=transformers;
   env.allowLocalModels=false;
   env.useBrowserCache=true;
-  if(env.backends?.onnx?.wasm)env.backends.onnx.wasm.numThreads=1;
-  const pipe=await pipeline('text-generation',MODEL_CPU,{
-    device:'wasm',dtype:'q4',
-    progress_callback:x=>{
-      if(x?.status==='progress' && typeof x.progress==='number'){
-        status(onProgress,'CPU-модель: загрузка '+Math.round(x.progress)+'% — '+(x.file||''));
-      }
-    },
-  });
-  cachedEngine={mode:'cpu',pipe};
-  return cachedEngine;
+  if(env.backends?.onnx?.wasm){
+    env.backends.onnx.wasm.numThreads=1;
+    env.backends.onnx.wasm.proxy=false;
+  }
+  status(onProgress,'CPU-режим подтверждён. Загружаем Qwen 0.5B q4 (может потребоваться несколько сотен МБ)…');
+  try {
+    const pipe=await pipeline('text-generation',MODEL_CPU,{
+      device:'wasm', dtype:'q4',
+      progress_callback:x=>{
+        if(x?.status==='progress' && typeof x.progress==='number'){
+          status(onProgress,'CPU-модель: '+Math.round(x.progress)+'% — '+(x.file||''));
+        } else if(x?.status==='ready') {status(onProgress,'CPU-модель загружена.');}
+      },
+    });
+    cachedEngine={mode:'cpu',pipe};
+    return cachedEngine;
+  } catch(e) {
+    throw new Error('CPU-модель не загрузилась или не запускается на этом iPad: '+(e?.message || String(e)));
+  }
 }
 function sourceParts(item) {
   const raw = (item.cues?.length ? item.cues.map(c=>c.text).join('\n') : item.transcript || '').trim();
@@ -66,7 +56,6 @@ function sourceParts(item) {
     }
   }
   if (current) parts.push(current);
-  if (parts.length > 16) throw new Error('Слишком длинный текст для маленькой локальной модели. Используй тематический конспект или короткую запись.');
   return parts;
 }
 async function generate(engine,messages,max_tokens=270) {

@@ -213,7 +213,7 @@ async function makeAiSummary(){
   const b=$('makeAiSummary'),stat=$('aiSummaryStatus');b.disabled=true;
   stat.textContent='Проверяем поддержку локальной языковой модели…';
   try{
-    const mod=await import('./localSummarize.mjs');
+    const mod=await import('./localSummarize.mjs?v=032');
     const text=await mod.createCoherentNotes({item,onProgress:msg=>{stat.textContent=msg;}});
     if(!text||text.length<100)throw new Error('Модель вернула слишком короткий ответ.');
     await updateCurrent({aiSummary:text});setTab('summary');stat.textContent='Готово. Связный конспект сохранён на этом iPad.';
